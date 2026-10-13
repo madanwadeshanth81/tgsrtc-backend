@@ -13,6 +13,39 @@ const getMongoCollection = (name) => {
 export const getAllStaff = async (req, res) => {
     try {
         const { role, status, minFatigue } = req.query;
+
+        // Try MongoDB first (Atlas cloud primary)
+        const mongoStaff = getMongoCollection('staff');
+        if (mongoStaff) {
+            const filter = {};
+            if (role) filter.role = role;
+            if (status) filter.status = status;
+            if (minFatigue) filter.fatigue_level = { $gte: parseInt(minFatigue) };
+
+            const rows = await mongoStaff.find(filter).sort({ fatigue_level: -1, name: 1 }).toArray();
+            const formatted = rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                role: r.role,
+                age: r.age,
+                experience: r.experience,
+                healthScore: r.health_score,
+                fatigueLevel: r.fatigue_level,
+                status: r.status,
+                assignedRoute: r.assigned_route,
+                hoursWorked: parseFloat(r.hours_worked || 0),
+                restHours: parseFloat(r.rest_hours || 0),
+                phone: r.phone,
+                bloodGroup: r.blood_group,
+                lastHealthCheck: r.last_health_check ? new Date(r.last_health_check).toISOString().split('T')[0] : null,
+                joinDate: r.join_date ? new Date(r.join_date).toISOString().split('T')[0] : null,
+                depotLocation: r.depot_location,
+                leaveReason: r.leave_reason || null
+            }));
+            return res.json({ success: true, count: formatted.length, data: formatted });
+        }
+
+        // MariaDB Fallback
         let query = 'SELECT * FROM staff WHERE 1=1';
         const params = [];
 
@@ -63,6 +96,38 @@ export const getAllStaff = async (req, res) => {
 export const getStaffById = async (req, res) => {
     try {
         const { id } = req.params;
+
+        // Try MongoDB first
+        const mongoStaff = getMongoCollection('staff');
+        if (mongoStaff) {
+            const r = await mongoStaff.findOne({ id });
+            if (r) {
+                return res.json({
+                    success: true,
+                    data: {
+                        id: r.id,
+                        name: r.name,
+                        role: r.role,
+                        age: r.age,
+                        experience: r.experience,
+                        healthScore: r.health_score,
+                        fatigueLevel: r.fatigue_level,
+                        status: r.status,
+                        assignedRoute: r.assigned_route,
+                        hoursWorked: parseFloat(r.hours_worked || 0),
+                        restHours: parseFloat(r.rest_hours || 0),
+                        phone: r.phone,
+                        bloodGroup: r.blood_group,
+                        lastHealthCheck: r.last_health_check ? new Date(r.last_health_check).toISOString().split('T')[0] : null,
+                        joinDate: r.join_date ? new Date(r.join_date).toISOString().split('T')[0] : null,
+                        depotLocation: r.depot_location,
+                        leaveReason: r.leave_reason || null
+                    }
+                });
+            }
+        }
+
+        // MariaDB Fallback
         const [rows] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
         if (rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Staff member not found.' });
@@ -104,20 +169,51 @@ export const createStaff = async (req, res) => {
             return res.status(400).json({ success: false, message: 'ID, name, role, and phone are mandatory.' });
         }
 
-        const [existing] = await pool.query('SELECT id FROM staff WHERE id = ?', [id]);
-        if (existing.length > 0) {
-            return res.status(409).json({ success: false, message: `Staff with ID ${id} already exists.` });
+        // Try MongoDB first
+        const mongoStaff = getMongoCollection('staff');
+        if (mongoStaff) {
+            const existing = await mongoStaff.findOne({ id });
+            if (existing) {
+                return res.status(409).json({ success: false, message: `Staff with ID ${id} already exists.` });
+            }
+
+            await mongoStaff.insertOne({
+                id,
+                name,
+                role,
+                age: age || 35,
+                experience: experience || 5,
+                health_score: healthScore || 85,
+                fatigue_level: fatigueLevel || 20,
+                status: status || 'Off Duty',
+                assigned_route: assignedRoute || null,
+                hours_worked: hoursWorked || 0,
+                rest_hours: restHours || 12,
+                phone,
+                blood_group: bloodGroup || 'O+',
+                last_health_check: new Date(),
+                join_date: new Date(),
+                depot_location: depotLocation || 'MGBS, Hyderabad',
+                created_at: new Date(),
+                updated_at: new Date()
+            });
         }
 
-        await pool.query(
-            `INSERT INTO staff (id, name, role, age, experience, health_score, fatigue_level, status, assigned_route, hours_worked, rest_hours, phone, blood_group, last_health_check, join_date, depot_location)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURDATE(), ?)`,
-            [
-                id, name, role, age || 35, experience || 5, healthScore || 85,
-                fatigueLevel || 20, status || 'Off Duty', assignedRoute || null,
-                hoursWorked || 0, restHours || 12, phone, bloodGroup || 'O+', depotLocation || 'MGBS, Hyderabad'
-            ]
-        );
+        // Sync with MariaDB if available
+        try {
+            const [existing] = await pool.query('SELECT id FROM staff WHERE id = ?', [id]);
+            if (existing.length === 0) {
+                await pool.query(
+                    `INSERT INTO staff (id, name, role, age, experience, health_score, fatigue_level, status, assigned_route, hours_worked, rest_hours, phone, blood_group, last_health_check, join_date, depot_location)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURDATE(), CURDATE(), ?)`,
+                    [
+                        id, name, role, age || 35, experience || 5, healthScore || 85,
+                        fatigueLevel || 20, status || 'Off Duty', assignedRoute || null,
+                        hoursWorked || 0, restHours || 12, phone, bloodGroup || 'O+', depotLocation || 'MGBS, Hyderabad'
+                    ]
+                );
+            }
+        } catch (dbErr) {}
 
         res.status(201).json({ success: true, message: `${role} ${name} enrolled successfully.`, id });
     } catch (err) {
@@ -130,41 +226,72 @@ export const applyEmergencyLeave = async (req, res) => {
     try {
         const { id } = req.params;
         const { reason } = req.body;
-
-        const [staffRows] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
-        if (staffRows.length === 0) {
-            return res.status(404).json({ success: false, message: 'Staff member not found.' });
-        }
-
-        const staff = staffRows[0];
         const leaveReason = reason || 'Medical Emergency / Acute Fatigue';
 
-        // Update staff status to 'Emergency Leave', deallocate route
-        await pool.query(
-            `UPDATE staff SET 
-                status = 'Emergency Leave', 
-                assigned_route = NULL, 
-                leave_reason = ? 
-             WHERE id = ?`,
-            [leaveReason, id]
-        );
+        let staff = null;
 
-        // Cancel or unassign any active/scheduled shifts for this staff
-        await pool.query(
-            `UPDATE shifts SET 
-                status = 'Cancelled', 
-                notes = CONCAT(COALESCE(notes, ''), ' [CANCELLED: Driver applied Emergency Leave]') 
-             WHERE (driver_id = ? OR conductor_id = ?) AND status IN ('Active', 'Scheduled')`,
-            [id, id]
-        );
+        // Try MongoDB first
+        const mongoStaff = getMongoCollection('staff');
+        const mongoShifts = getMongoCollection('shifts');
+        const mongoAlerts = getMongoCollection('alerts');
 
-        // Generate high-priority dispatcher alert in alerts table
-        const alertId = `ALT-${Date.now().toString().slice(-4)}`;
-        await pool.query(
-            `INSERT INTO alerts (id, alert_type, title, message, time_ago, acknowledged, driver_id)
-             VALUES (?, 'critical', 'Emergency Leave Dispatched', ?, 'Just now', FALSE, ?)`,
-            [alertId, `EMERGENCY LEAVE: ${staff.role} ${staff.name} (${id}) granted emergency leave. Reason: "${leaveReason}". Shifts unassigned.`, id]
-        );
+        if (mongoStaff) {
+            staff = await mongoStaff.findOne({ id });
+            if (staff) {
+                await mongoStaff.updateOne(
+                    { id },
+                    { $set: { status: 'Emergency Leave', assigned_route: null, leave_reason: leaveReason, updated_at: new Date() } }
+                );
+
+                if (mongoShifts) {
+                    await mongoShifts.updateMany(
+                        { $or: [{ driver_id: id }, { conductor_id: id }], status: { $in: ['Active', 'Scheduled'] } },
+                        { $set: { status: 'Cancelled', notes: `[CANCELLED: Staff applied Emergency Leave]`, updated_at: new Date() } }
+                    );
+                }
+
+                if (mongoAlerts) {
+                    const alertId = `ALT-${Date.now().toString().slice(-4)}`;
+                    await mongoAlerts.insertOne({
+                        id: alertId,
+                        alert_type: 'critical',
+                        title: 'Emergency Leave Dispatched',
+                        message: `EMERGENCY LEAVE: ${staff.role} ${staff.name} (${id}) granted emergency leave. Reason: "${leaveReason}". Shifts unassigned.`,
+                        time_ago: 'Just now',
+                        acknowledged: 0,
+                        driver_id: id,
+                        created_at: new Date(),
+                        updated_at: new Date()
+                    });
+                }
+            }
+        }
+
+        // Try MariaDB fallback / sync
+        try {
+            const [staffRows] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
+            if (staffRows.length > 0) {
+                const s = staffRows[0];
+                if (!staff) staff = s;
+                await pool.query(
+                    `UPDATE staff SET status = 'Emergency Leave', assigned_route = NULL, leave_reason = ? WHERE id = ?`,
+                    [leaveReason, id]
+                );
+                await pool.query(
+                    `UPDATE shifts SET status = 'Cancelled', notes = CONCAT(COALESCE(notes, ''), ' [CANCELLED: Staff applied Emergency Leave]') WHERE (driver_id = ? OR conductor_id = ?) AND status IN ('Active', 'Scheduled')`,
+                    [id, id]
+                );
+                const alertId = `ALT-${Date.now().toString().slice(-4)}`;
+                await pool.query(
+                    `INSERT INTO alerts (id, alert_type, title, message, time_ago, acknowledged, driver_id) VALUES (?, 'critical', 'Emergency Leave Dispatched', ?, 'Just now', FALSE, ?)`,
+                    [alertId, `EMERGENCY LEAVE: ${s.role} ${s.name} (${id}) granted emergency leave. Reason: "${leaveReason}". Shifts unassigned.`, id]
+                );
+            }
+        } catch (dbErr) {}
+
+        if (!staff) {
+            return res.status(404).json({ success: false, message: 'Staff member not found.' });
+        }
 
         res.json({
             success: true,
@@ -183,39 +310,80 @@ export const updateStaff = async (req, res) => {
         const { id } = req.params;
         const { status, fatigueLevel, hoursWorked, restHours, assignedRoute, healthScore } = req.body;
 
-        const [current] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
-        if (current.length === 0) {
-            return res.status(404).json({ success: false, message: 'Staff member not found.' });
+        let current = null;
+
+        // Try MongoDB first
+        const mongoStaff = getMongoCollection('staff');
+        const mongoAlerts = getMongoCollection('alerts');
+
+        if (mongoStaff) {
+            current = await mongoStaff.findOne({ id });
+            if (current) {
+                const updateDoc = { updated_at: new Date() };
+                if (status !== undefined) updateDoc.status = status;
+                if (fatigueLevel !== undefined) updateDoc.fatigue_level = fatigueLevel;
+                if (hoursWorked !== undefined) updateDoc.hours_worked = hoursWorked;
+                if (restHours !== undefined) updateDoc.rest_hours = restHours;
+                if (assignedRoute !== undefined) updateDoc.assigned_route = assignedRoute;
+                if (healthScore !== undefined) updateDoc.health_score = healthScore;
+
+                await mongoStaff.updateOne({ id }, { $set: updateDoc });
+
+                if (fatigueLevel && fatigueLevel >= 80 && mongoAlerts) {
+                    const alertId = `ALT-${Date.now().toString().slice(-4)}`;
+                    await mongoAlerts.insertOne({
+                        id: alertId,
+                        alert_type: 'critical',
+                        title: 'High Fatigue Alert',
+                        message: `${current.role} ${current.name} (${id}) reached high fatigue level (${fatigueLevel}%). Immediate rest recommended.`,
+                        time_ago: 'Just now',
+                        acknowledged: 0,
+                        driver_id: id,
+                        created_at: new Date(),
+                        updated_at: new Date()
+                    });
+                }
+            }
         }
 
-        await pool.query(
-            `UPDATE staff SET 
-                status = COALESCE(?, status),
-                fatigue_level = COALESCE(?, fatigue_level),
-                hours_worked = COALESCE(?, hours_worked),
-                rest_hours = COALESCE(?, rest_hours),
-                assigned_route = ?,
-                health_score = COALESCE(?, health_score)
-             WHERE id = ?`,
-            [
-                status !== undefined ? status : null,
-                fatigueLevel !== undefined ? fatigueLevel : null,
-                hoursWorked !== undefined ? hoursWorked : null,
-                restHours !== undefined ? restHours : null,
-                assignedRoute !== undefined ? assignedRoute : current[0].assigned_route,
-                healthScore !== undefined ? healthScore : null,
-                id
-            ]
-        );
+        // Try MariaDB fallback/sync
+        try {
+            const [rows] = await pool.query('SELECT * FROM staff WHERE id = ?', [id]);
+            if (rows.length > 0) {
+                if (!current) current = rows[0];
+                await pool.query(
+                    `UPDATE staff SET 
+                        status = COALESCE(?, status),
+                        fatigue_level = COALESCE(?, fatigue_level),
+                        hours_worked = COALESCE(?, hours_worked),
+                        rest_hours = COALESCE(?, rest_hours),
+                        assigned_route = ?,
+                        health_score = COALESCE(?, health_score)
+                     WHERE id = ?`,
+                    [
+                        status !== undefined ? status : null,
+                        fatigueLevel !== undefined ? fatigueLevel : null,
+                        hoursWorked !== undefined ? hoursWorked : null,
+                        restHours !== undefined ? restHours : null,
+                        assignedRoute !== undefined ? assignedRoute : rows[0].assigned_route,
+                        healthScore !== undefined ? healthScore : null,
+                        id
+                    ]
+                );
 
-        // If fatigue level exceeds 80%, auto-generate critical alert
-        if (fatigueLevel && fatigueLevel >= 80) {
-            const alertId = `ALT-${Date.now().toString().slice(-4)}`;
-            await pool.query(
-                `INSERT INTO alerts (id, alert_type, title, message, time_ago, acknowledged, driver_id)
-                 VALUES (?, 'critical', 'High Fatigue Alert', ?, 'Just now', FALSE, ?)`,
-                [alertId, `${current[0].role} ${current[0].name} (${id}) reached high fatigue level (${fatigueLevel}%). Immediate rest recommended.`, id]
-            );
+                if (fatigueLevel && fatigueLevel >= 80) {
+                    const alertId = `ALT-${Date.now().toString().slice(-4)}`;
+                    await pool.query(
+                        `INSERT INTO alerts (id, alert_type, title, message, time_ago, acknowledged, driver_id)
+                         VALUES (?, 'critical', 'High Fatigue Alert', ?, 'Just now', FALSE, ?)`,
+                        [alertId, `${rows[0].role} ${rows[0].name} (${id}) reached high fatigue level (${fatigueLevel}%). Immediate rest recommended.`, id]
+                    );
+                }
+            }
+        } catch (dbErr) {}
+
+        if (!current) {
+            return res.status(404).json({ success: false, message: 'Staff member not found.' });
         }
 
         res.json({ success: true, message: `Staff ${id} updated successfully.` });
@@ -228,43 +396,50 @@ export const updateStaff = async (req, res) => {
 export const deleteStaff = async (req, res) => {
     try {
         const { id } = req.params;
-        const [current] = await pool.query('SELECT id, name, role FROM staff WHERE id = ?', [id]);
-        if (current.length === 0) {
-            return res.status(404).json({ success: false, message: 'Staff member not found in database.' });
+
+        let staffMember = null;
+
+        // Clean up in MongoDB
+        const mongoStaff = getMongoCollection('staff');
+        const mongoUsers = getMongoCollection('users');
+        const mongoAlerts = getMongoCollection('alerts');
+        const mongoShifts = getMongoCollection('shifts');
+
+        if (mongoStaff) {
+            staffMember = await mongoStaff.findOne({ id });
+            if (staffMember) {
+                await mongoStaff.deleteOne({ id });
+                if (mongoUsers) await mongoUsers.deleteOne({ employee_id: id });
+                if (mongoAlerts) await mongoAlerts.deleteMany({ driver_id: id });
+                if (mongoShifts) {
+                    await mongoShifts.updateMany({ driver_id: id }, { $set: { driver_id: null } });
+                    await mongoShifts.updateMany({ conductor_id: id }, { $set: { conductor_id: null } });
+                }
+            }
         }
 
-        const staffMember = current[0];
+        // Clean up in MariaDB
+        try {
+            const [current] = await pool.query('SELECT id, name, role FROM staff WHERE id = ?', [id]);
+            if (current.length > 0) {
+                if (!staffMember) staffMember = current[0];
+                await pool.query(
+                    `UPDATE shifts SET 
+                        driver_id = CASE WHEN driver_id = ? THEN NULL ELSE driver_id END,
+                        conductor_id = CASE WHEN conductor_id = ? THEN NULL ELSE conductor_id END
+                     WHERE driver_id = ? OR conductor_id = ?`,
+                    [id, id, id, id]
+                );
+                await pool.query('DELETE FROM alerts WHERE driver_id = ?', [id]);
+                await pool.query('UPDATE incidents SET driver_id = NULL WHERE driver_id = ?', [id]);
+                await pool.query('DELETE FROM staff WHERE id = ?', [id]);
+                await pool.query('DELETE FROM users WHERE employee_id = ?', [id]);
+            }
+        } catch (dbErr) {}
 
-        // Clean up any active/scheduled shift dependencies
-        await pool.query(
-            `UPDATE shifts SET 
-                driver_id = CASE WHEN driver_id = ? THEN NULL ELSE driver_id END,
-                conductor_id = CASE WHEN conductor_id = ? THEN NULL ELSE conductor_id END
-             WHERE driver_id = ? OR conductor_id = ?`,
-            [id, id, id, id]
-        );
-
-        // Clean up alerts
-        await pool.query('DELETE FROM alerts WHERE driver_id = ?', [id]);
-
-        // Clean up incidents driver reference if any
-        await pool.query('UPDATE incidents SET driver_id = NULL WHERE driver_id = ?', [id]);
-
-        // Delete from staff table
-        await pool.query('DELETE FROM staff WHERE id = ?', [id]);
-
-        // Clean up user account if matching employee_id exists
-        await pool.query('DELETE FROM users WHERE employee_id = ?', [id]);
-
-        // Sync deletion in MongoDB
-        const mongoStaff = getMongoCollection('staff');
-        if (mongoStaff) await mongoStaff.deleteOne({ id });
-        const mongoUsers = getMongoCollection('users');
-        if (mongoUsers) await mongoUsers.deleteOne({ employee_id: id });
-        const mongoAlerts = getMongoCollection('alerts');
-        if (mongoAlerts) await mongoAlerts.deleteMany({ driver_id: id });
-
-        console.log(`[STAFF] Deleted ${staffMember.role} '${staffMember.name}' (${id}) from MariaDB & MongoDB`);
+        if (!staffMember) {
+            return res.status(404).json({ success: false, message: 'Staff member not found in database.' });
+        }
 
         res.json({
             success: true,
