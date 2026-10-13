@@ -174,7 +174,10 @@ export const sendOtp = async (req, res) => {
 
         res.json({
             success: true,
-            message: `OTP sent successfully to ${targetType === 'EMAIL' ? 'email' : 'mobile'} ${targetValue}!`,
+            message: dispatchResult?.mode === 'live' 
+                ? `OTP sent successfully to ${targetType === 'EMAIL' ? 'email' : 'mobile'} ${targetValue}!`
+                : `OTP generated for ${targetValue}! (Cloud Demo Code: ${otpCode})`,
+            otp: dispatchResult?.mode === 'live' ? undefined : otpCode,
             targetType,
             targetValue,
             expiresInSeconds: 600,
