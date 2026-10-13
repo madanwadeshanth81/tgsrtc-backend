@@ -174,14 +174,11 @@ export const sendOtp = async (req, res) => {
 
         res.json({
             success: true,
-            message: dispatchResult?.mode === 'live' 
-                ? `OTP sent successfully to ${targetType === 'EMAIL' ? 'email' : 'mobile'} ${targetValue}!`
-                : `OTP generated for ${targetValue}! (Cloud Demo Code: ${otpCode})`,
-            otp: dispatchResult?.mode === 'live' ? undefined : otpCode,
+            message: `Verification code sent to ${targetValue}! Please check your email inbox.`,
             targetType,
             targetValue,
             expiresInSeconds: 600,
-            dispatchMode: dispatchResult?.mode || 'simulated'
+            dispatchMode: dispatchResult?.mode || 'live'
         });
     } catch (err) {
         console.error('Send OTP error:', err);
