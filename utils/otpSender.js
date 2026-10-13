@@ -45,11 +45,16 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
                 }
             };
 
+            const headers = {
+                'Content-Type': 'application/json',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Origin': 'https://tgsrtc-frontend.vercel.app',
+                'Referer': 'https://tgsrtc-frontend.vercel.app/'
+            };
+
             const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
+                headers,
                 body: JSON.stringify(payload)
             });
 
