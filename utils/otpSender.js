@@ -23,7 +23,49 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
         </div>
     `;
 
-    // Method 1: Resend HTTPS API (Works 100% on Render / Cloud without SMTP port blocking)
+    // Method 1: EmailJS HTTPS API (Delivers to ANY email via connected Gmail, works on Render Port 443)
+    const emailjsServiceId = process.env.EMAILJS_SERVICE_ID;
+    const emailjsTemplateId = process.env.EMAILJS_TEMPLATE_ID;
+    const emailjsPublicKey = process.env.EMAILJS_PUBLIC_KEY;
+    const emailjsPrivateKey = process.env.EMAILJS_PRIVATE_KEY;
+
+    if (emailjsServiceId && emailjsTemplateId && emailjsPublicKey) {
+        try {
+            const payload = {
+                service_id: emailjsServiceId.trim(),
+                template_id: emailjsTemplateId.trim(),
+                user_id: emailjsPublicKey.trim(),
+                ...(emailjsPrivateKey ? { accessToken: emailjsPrivateKey.trim() } : {}),
+                template_params: {
+                    to_email: toEmail,
+                    email: toEmail,
+                    recipient: toEmail,
+                    otp_code: otpCode,
+                    otp: otpCode
+                }
+            };
+
+            const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const textResponse = await res.text();
+            if (res.ok || textResponse === 'OK') {
+                console.log(`[EMAILJS DISPATCH SUCCESS] Real OTP email delivered to ${toEmail} via EmailJS!`);
+                return { success: true, mode: 'live', provider: 'EmailJS', messageId: `emailjs-${Date.now()}` };
+            } else {
+                console.warn(`[EMAILJS WARNING] API returned: ${textResponse}`);
+            }
+        } catch (err) {
+            console.error(`[EMAILJS ERROR]`, err.message);
+        }
+    }
+
+    // Method 2: Resend HTTPS API (Fallback if key exists)
     if (resendApiKey) {
         try {
             const res = await fetch('https://api.resend.com/emails', {
@@ -44,8 +86,6 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
             if (res.ok && data.id) {
                 console.log(`[RESEND EMAIL SUCCESS] Live email delivered to ${toEmail}. ID: ${data.id}`);
                 return { success: true, mode: 'live', provider: 'Resend', messageId: data.id };
-            } else {
-                console.warn(`[RESEND API WARNING]`, data);
             }
         } catch (err) {
             console.error(`[RESEND ERROR]`, err.message);
