@@ -423,12 +423,15 @@ export const getAllUsers = async (req, res) => {
         if (mongoUsers) {
             const filter = role ? { role } : {};
             const users = await mongoUsers.find(filter).sort({ _id: -1 }).toArray();
-            const enriched = users.map(u => ({
-                ...u,
-                auth_status: 'ACTIVE_AUTHENTICATED',
-                auth_provider: 'MongoDB Atlas Stored',
-                last_login_verified: u.updated_at || u.created_at
-            }));
+            const enriched = users.map(u => {
+                const { password, ...safeUser } = u;
+                return {
+                    ...safeUser,
+                    auth_status: 'ACTIVE_AUTHENTICATED',
+                    auth_provider: 'MongoDB Atlas Stored',
+                    last_login_verified: u.updated_at || u.created_at
+                };
+            });
             return res.json({ success: true, count: enriched.length, data: enriched });
         }
         res.json({ success: true, count: 0, data: [] });

@@ -23,10 +23,6 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
         </div>
     `;
 
-    // Admin contact identity
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@tgsrtc.telangana.gov.in';
-    const adminName = 'TGSRTC Admin';
-
     // Method 1: EmailJS HTTPS API (Delivers to ANY email via connected Gmail, works on Render Port 443)
     const emailjsServiceId = process.env.EMAILJS_SERVICE_ID;
     const emailjsTemplateId = process.env.EMAILJS_TEMPLATE_ID;
@@ -42,18 +38,10 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
                 ...(emailjsPrivateKey ? { accessToken: emailjsPrivateKey.trim() } : {}),
                 template_params: {
                     to_email: toEmail,
+                    email: toEmail,
                     recipient: toEmail,
                     otp_code: otpCode,
-                    otp: otpCode,
-                    // Admin sender details mapped to EmailJS template variables
-                    name: adminName,
-                    from_name: adminName,
-                    admin_name: adminName,
-                    email: adminEmail,            // Replaces {{email}} in Reply To
-                    reply_to: adminEmail,         // Replaces {{reply_to}}
-                    from_email: adminEmail,       // Replaces {{from_email}}
-                    admin_email: adminEmail,      // Replaces {{admin_email}}
-                    admin_mail: adminEmail
+                    otp: otpCode
                 }
             };
 
@@ -92,9 +80,8 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    from: 'TGSRTC Admin <onboarding@resend.dev>',
+                    from: 'TGSRTC Verification <onboarding@resend.dev>',
                     to: [toEmail],
-                    reply_to: adminEmail,
                     subject: `TGSRTC Account Verification Code: ${otpCode}`,
                     html: emailHtml
                 })
@@ -110,7 +97,7 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
         }
     }
 
-    // Method 3: Gmail SMTP (Works on Localhost)
+    // Method 2: Gmail SMTP (Works on Localhost)
     if (gmailUser && gmailPass) {
         try {
             const transporter = nodemailer.createTransport({
@@ -127,8 +114,7 @@ export const sendEmailOtp = async (toEmail, otpCode) => {
             });
 
             const mailOptions = {
-                from: `"TGSRTC Admin" <${gmailUser}>`,
-                replyTo: adminEmail,
+                from: `"TGSRTC Verification" <${gmailUser}>`,
                 to: toEmail,
                 subject: `TGSRTC Account Verification Code: ${otpCode}`,
                 html: emailHtml
